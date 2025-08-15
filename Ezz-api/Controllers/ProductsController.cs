@@ -23,6 +23,82 @@ namespace Ezz_api.Controllers
         [HttpGet]
         public async Task<IActionResult> GetAll() => Ok(await _db.Products.Include(p => p.Images).Include(p => p.Category).ToListAsync());
 
+        [HttpGet("paginated")]
+        public async Task<IActionResult> GetPaginated([FromQuery] ProductFilterParameters parameters)
+        {
+            try
+            {
+                var query = _db.Products.Include(p => p.Images).Include(p => p.Category).AsQueryable();
+
+                // Apply filters
+                if (parameters.CategoryId.HasValue)
+                    query = query.Where(p => p.CategoryId == parameters.CategoryId.Value);
+
+                if (parameters.MinPrice.HasValue)
+                    query = query.Where(p => p.Price >= parameters.MinPrice.Value);
+
+                if (parameters.MaxPrice.HasValue)
+                    query = query.Where(p => p.Price <= parameters.MaxPrice.Value);
+
+                if (parameters.MinStock.HasValue)
+                    query = query.Where(p => p.Stock >= parameters.MinStock.Value);
+
+                if (parameters.MaxStock.HasValue)
+                    query = query.Where(p => p.Stock <= parameters.MaxStock.Value);
+
+                if (parameters.InStock.HasValue)
+                {
+                    if (parameters.InStock.Value)
+                        query = query.Where(p => p.Stock > 0);
+                    else
+                        query = query.Where(p => p.Stock <= 0);
+                }
+
+                if (!string.IsNullOrEmpty(parameters.SearchTerm))
+                {
+                    var searchTerm = parameters.SearchTerm.ToLower();
+                    query = query.Where(p => 
+                        p.Title.ToLower().Contains(searchTerm) ||
+                        p.Description.ToLower().Contains(searchTerm) ||
+                        p.Category.Name.ToLower().Contains(searchTerm)
+                    );
+                }
+
+                // Get total count before pagination
+                var totalCount = await query.CountAsync();
+
+                // Apply sorting
+                if (!string.IsNullOrEmpty(parameters.SortBy))
+                {
+                    query = parameters.SortBy.ToLower() switch
+                    {
+                        "price" => parameters.SortDescending ? query.OrderByDescending(p => p.Price) : query.OrderBy(p => p.Price),
+                        "stock" => parameters.SortDescending ? query.OrderByDescending(p => p.Stock) : query.OrderBy(p => p.Stock),
+                        "name" => parameters.SortDescending ? query.OrderByDescending(p => p.Title) : query.OrderBy(p => p.Title),
+                        "category" => parameters.SortDescending ? query.OrderByDescending(p => p.Category.Name) : query.OrderBy(p => p.Category.Name),
+                        _ => parameters.SortDescending ? query.OrderByDescending(p => p.Id) : query.OrderBy(p => p.Id)
+                    };
+                }
+                else
+                {
+                    query = query.OrderBy(p => p.Id);
+                }
+
+                // Apply pagination
+                var products = await query
+                    .Skip((parameters.PageNumber - 1) * parameters.PageSize)
+                    .Take(parameters.PageSize)
+                    .ToListAsync();
+
+                var response = new PaginatedResponse<Product>(products, totalCount, parameters.PageNumber, parameters.PageSize);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpGet("{id:int}")]
         public async Task<IActionResult> Get(int id)
         {

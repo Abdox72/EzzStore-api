@@ -48,6 +48,92 @@ namespace Ezz_api.Controllers
             return Ok(usersWithRoles);
         }
 
+        [HttpGet("paginated")]
+        public async Task<IActionResult> GetPaginatedUsers([FromQuery] UserFilterParameters parameters)
+        {
+            try
+            {
+                var query = _userManager.Users.AsQueryable();
+
+                // Apply filters
+                if (!string.IsNullOrEmpty(parameters.Role))
+                {
+                    var usersInRole = await _userManager.GetUsersInRoleAsync(parameters.Role);
+                    var userIds = usersInRole.Select(u => u.Id);
+                    query = query.Where(u => userIds.Contains(u.Id));
+                }
+
+                if (parameters.EmailConfirmed.HasValue)
+                    query = query.Where(u => u.EmailConfirmed == parameters.EmailConfirmed.Value);
+
+                if (parameters.CreatedAfter.HasValue)
+                    query = query.Where(u => u.CreatedAt >= parameters.CreatedAfter.Value);
+
+                if (parameters.CreatedBefore.HasValue)
+                    query = query.Where(u => u.CreatedAt <= parameters.CreatedBefore.Value);
+
+                if (!string.IsNullOrEmpty(parameters.SearchTerm))
+                {
+                    var searchTerm = parameters.SearchTerm.ToLower();
+                    query = query.Where(u => 
+                        u.UserName.ToLower().Contains(searchTerm) ||
+                        u.Email.ToLower().Contains(searchTerm) ||
+                        (u.FullName != null && u.FullName.ToLower().Contains(searchTerm))
+                    );
+                }
+
+                // Get total count before pagination
+                var totalCount = await query.CountAsync();
+
+                // Apply sorting
+                if (!string.IsNullOrEmpty(parameters.SortBy))
+                {
+                    query = parameters.SortBy.ToLower() switch
+                    {
+                        "username" => parameters.SortDescending ? query.OrderByDescending(u => u.UserName) : query.OrderBy(u => u.UserName),
+                        "email" => parameters.SortDescending ? query.OrderByDescending(u => u.Email) : query.OrderBy(u => u.Email),
+                        "name" => parameters.SortDescending ? query.OrderByDescending(u => u.FullName) : query.OrderBy(u => u.FullName),
+                        "created" => parameters.SortDescending ? query.OrderByDescending(u => u.CreatedAt) : query.OrderBy(u => u.CreatedAt),
+                        _ => parameters.SortDescending ? query.OrderByDescending(u => u.CreatedAt) : query.OrderBy(u => u.CreatedAt)
+                    };
+                }
+                else
+                {
+                    query = query.OrderBy(u => u.CreatedAt);
+                }
+
+                // Apply pagination
+                var users = await query
+                    .Skip((parameters.PageNumber - 1) * parameters.PageSize)
+                    .Take(parameters.PageSize)
+                    .ToListAsync();
+
+                // Build DTOs with roles
+                var usersWithRoles = new List<object>();
+                foreach (var u in users)
+                {
+                    var roles = await _userManager.GetRolesAsync(u);
+                    usersWithRoles.Add(new
+                    {
+                        id = u.Id,
+                        username = u.UserName,
+                        email = u.Email,
+                        name = u.FullName,
+                        emailConfirmed = u.EmailConfirmed,
+                        createdAt = u.CreatedAt,
+                        role = roles.FirstOrDefault() ?? string.Empty
+                    });
+                }
+
+                var response = new PaginatedResponse<object>(usersWithRoles, totalCount, parameters.PageNumber, parameters.PageSize);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         // GET: api/Users/{id}
         [HttpGet("{id}")]
         public async Task<IActionResult> GetUser(string id)
@@ -105,7 +191,7 @@ namespace Ezz_api.Controllers
                 return BadRequest(new { message = "Email already in use." });
             }
 
-            var user = new ApplicationUser { UserName = userDto.Email, Email = userDto.Email, FullName = userDto.Name };
+            var user = new ApplicationUser { UserName = userDto.Email, Email = userDto.Email, FullName = userDto.Name,CreatedAt=DateTime.Now };
             var result = await _userManager.CreateAsync(user, userDto.Password);
             if (!result.Succeeded) return BadRequest(new { message = "Failed To Create User" });
            

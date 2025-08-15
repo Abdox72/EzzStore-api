@@ -45,7 +45,7 @@ namespace Ezz_api.Controllers
             if (await _userManager.FindByEmailAsync(model.Email) != null)
                 return Conflict(new { message = "Email already registered." });
 
-            var user = new ApplicationUser { UserName = model.Email, Email = model.Email, FullName = model.Name };
+            var user = new ApplicationUser { UserName = model.Email, Email = model.Email, FullName = model.Name ,CreatedAt=DateTime.Now};
             var result = await _userManager.CreateAsync(user, model.Password);
             if (!result.Succeeded)
                 return BadRequest(result.Errors);

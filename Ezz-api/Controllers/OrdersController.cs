@@ -151,6 +151,88 @@ namespace Ezz_api.Controllers
             return Ok(orders);
         }
 
+        [HttpGet("admin/paginated")]
+        [Authorize(Roles = "Admin")]
+        public async Task<IActionResult> GetPaginatedOrders([FromQuery] OrderFilterParameters parameters)
+        {
+            try
+            {
+                var query = _db.Orders.Include(o => o.OrderItems).AsQueryable();
+
+                // Apply filters
+                if (!string.IsNullOrEmpty(parameters.Status))
+                    query = query.Where(o => o.OrderStatus == parameters.Status);
+
+                if (!string.IsNullOrEmpty(parameters.PaymentStatus))
+                    query = query.Where(o => o.PaymentStatus == parameters.PaymentStatus);
+
+                if (!string.IsNullOrEmpty(parameters.PaymentMethod))
+                    query = query.Where(o => o.PaymentMethod == parameters.PaymentMethod);
+
+                if (parameters.StartDate.HasValue)
+                    query = query.Where(o => o.CreatedAt >= parameters.StartDate.Value);
+
+                if (parameters.EndDate.HasValue)
+                    query = query.Where(o => o.CreatedAt <= parameters.EndDate.Value);
+
+                if (parameters.MinAmount.HasValue)
+                    query = query.Where(o => o.TotalAmount >= parameters.MinAmount.Value);
+
+                if (parameters.MaxAmount.HasValue)
+                    query = query.Where(o => o.TotalAmount <= parameters.MaxAmount.Value);
+
+                if (!string.IsNullOrEmpty(parameters.CustomerName))
+                    query = query.Where(o => o.CustomerName.Contains(parameters.CustomerName));
+
+                if (!string.IsNullOrEmpty(parameters.CustomerEmail))
+                    query = query.Where(o => o.CustomerEmail.Contains(parameters.CustomerEmail));
+
+                if (!string.IsNullOrEmpty(parameters.SearchTerm))
+                {
+                    var searchTerm = parameters.SearchTerm.ToLower();
+                    query = query.Where(o => 
+                        o.CustomerName.ToLower().Contains(searchTerm) ||
+                        o.CustomerEmail.ToLower().Contains(searchTerm) ||
+                        o.Id.ToString().Contains(searchTerm) ||
+                        o.TrackingNumber != null && o.TrackingNumber.ToLower().Contains(searchTerm)
+                    );
+                }
+
+                // Get total count before pagination
+                var totalCount = await query.CountAsync();
+
+                // Apply sorting
+                if (!string.IsNullOrEmpty(parameters.SortBy))
+                {
+                    query = parameters.SortBy.ToLower() switch
+                    {
+                        "amount" => parameters.SortDescending ? query.OrderByDescending(o => o.TotalAmount) : query.OrderBy(o => o.TotalAmount),
+                        "date" => parameters.SortDescending ? query.OrderByDescending(o => o.CreatedAt) : query.OrderBy(o => o.CreatedAt),
+                        "customer" => parameters.SortDescending ? query.OrderByDescending(o => o.CustomerName) : query.OrderBy(o => o.CustomerName),
+                        "status" => parameters.SortDescending ? query.OrderByDescending(o => o.OrderStatus) : query.OrderBy(o => o.OrderStatus),
+                        _ => parameters.SortDescending ? query.OrderByDescending(o => o.CreatedAt) : query.OrderBy(o => o.CreatedAt)
+                    };
+                }
+                else
+                {
+                    query = query.OrderByDescending(o => o.CreatedAt);
+                }
+
+                // Apply pagination
+                var orders = await query
+                    .Skip((parameters.PageNumber - 1) * parameters.PageSize)
+                    .Take(parameters.PageSize)
+                    .ToListAsync();
+
+                var response = new PaginatedResponse<Order>(orders, totalCount, parameters.PageNumber, parameters.PageSize);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpPut("{id:int}/status")]
         [Authorize(Roles = "Admin")]
         public async Task<IActionResult> UpdateOrderStatus(int id, [FromBody] UpdateOrderStatusRequest request)
