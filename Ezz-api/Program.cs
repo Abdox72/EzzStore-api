@@ -146,6 +146,7 @@ namespace Ezz_api
             builder.Services.AddScoped<IContactService, ContactService>();
             builder.Services.AddScoped<IChatbotService, ChatbotService>();
             builder.Services.AddScoped<IDashboardService, DashboardService>();
+            builder.Services.AddScoped<IChatService, ChatService>();
 
             var app = builder.Build();
 
