@@ -1,0 +1,6 @@
+@Ezz_api_HostAddress = http://localhost:5076
+
+GET {{Ezz_api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
