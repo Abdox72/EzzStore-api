@@ -1,6 +1,7 @@
 ﻿using Ezz_api.Models;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using System.Reflection.Emit;
 
 namespace Ezz_api.Models
 {
@@ -140,6 +141,11 @@ namespace Ezz_api.Models
                 .HasForeignKey(oi => oi.ProductId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+             builder.Entity<OrderItem>()
+             .HasOne(oi => oi.Order)
+             .WithMany(o => o.OrderItems)
+             .HasForeignKey(oi => oi.OrderId)
+             .OnDelete(DeleteBehavior.Cascade);
 
 
 

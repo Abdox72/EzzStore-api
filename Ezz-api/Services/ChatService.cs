@@ -48,12 +48,17 @@ namespace Ezz_api.Services
                 {
                     return await GetTotalRevenueAsync();
                 }
+                else if (ContainsKeywords(question, new[] { "توقع", "توقُّعات", "تنبؤ", "الشهر القادم", "القادم", "المقبل" }))
+                {
+                    var category = ExtractCategory(question);
+                    return await ForecastTopSellingNextMonthAsync(category, 5);
+                }
                 else
                 {
                     return new ChatResponse
                     {
                         Success = false,
-                        Answer = "عذراً، لم أفهم سؤالك. يمكنك أن تسأل عن: الأكثر مبيعاً، الأقل سعراً، الأكثر كمية، إحصائيات التصنيفات، عدد المنتجات، أو إجمالي المبيعات.",
+                        Answer = "عذراً، لم أفهم سؤالك. يمكنك أن تسأل عن: الأكثر مبيعاً، الأقل سعراً، الأكثر كمية، إحصائيات التصنيفات، عدد المنتجات، إجمالي المبيعات، أو التوقعات للشهر القادم.",
                         QueryType = "unknown",
                         ErrorMessage = "سؤال غير مفهوم"
                     };
@@ -387,6 +392,113 @@ namespace Ezz_api.Services
                     Success = false,
                     Answer = "حدث خطأ أثناء جلب عدد المنتجات.",
                     QueryType = "product_count",
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        public async Task<ChatResponse> ForecastTopSellingNextMonthAsync(string category = "", int top = 5)
+        {
+            try
+            {
+                // احصل على مبيعات آخر 6 أشهر لكل منتج، ثم توقع الشهر القادم بخط اتجاه بسيط
+                var since = DateTime.UtcNow.AddMonths(-6);
+
+                var items = await _db.OrderItems
+                    .Include(oi => oi.Order)
+                    .Where(oi => oi.Order.CreatedAt >= since && oi.Order.PaymentStatus == "paid")
+                    .Select(oi => new { oi.ProductId, oi.ProductName, oi.Quantity, Month = new DateTime(oi.Order.CreatedAt.Year, oi.Order.CreatedAt.Month, 1) })
+                    .ToListAsync();
+
+                if (!string.IsNullOrWhiteSpace(category))
+                {
+                    var catLower = category.ToLower();
+                    items = items.Where(i => (i.ProductName ?? string.Empty).ToLower().Contains(catLower)).ToList();
+                }
+
+                // تجميع شهري: كمية لكل منتج لكل شهر
+                var monthly = items
+                    .GroupBy(i => new { i.ProductId, i.ProductName, i.Month })
+                    .Select(g => new { g.Key.ProductId, g.Key.ProductName, g.Key.Month, Qty = g.Sum(x => x.Quantity) })
+                    .ToList();
+
+                // بناء سلسلة زمنية لكل منتج (مرتبة زمنياً)
+                var seriesByProduct = monthly
+                    .GroupBy(m => new { m.ProductId, m.ProductName })
+                    .ToDictionary(
+                        g => g.Key,
+                        g => g.OrderBy(x => x.Month).Select((x, idx) => new { idx, x.Month, x.Qty }).ToList()
+                    );
+
+                var nextMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1).AddMonths(1);
+                var forecasts = new List<(int ProductId, string Name, double ForecastQty)>();
+
+                foreach (var kv in seriesByProduct)
+                {
+                    var prodId = kv.Key.ProductId;
+                    var name = kv.Key.ProductName ?? string.Empty;
+                    var series = kv.Value;
+
+                    double forecast;
+                    if (series.Count >= 2)
+                    {
+                        // انحدار خطي بسيط y = a*x + b على (idx, Qty)
+                        var n = series.Count;
+                        double sumX = series.Sum(p => (double)p.idx);
+                        double sumY = series.Sum(p => (double)p.Qty);
+                        double sumXY = series.Sum(p => (double)p.idx * p.Qty);
+                        double sumXX = series.Sum(p => (double)p.idx * p.idx);
+                        double denom = (n * sumXX - sumX * sumX);
+                        double a = denom != 0 ? (n * sumXY - sumX * sumY) / denom : 0.0; // الميل
+                        double b = (sumY - a * sumX) / n; // الثابت
+                        var nextIdx = series.Last().idx + 1;
+                        forecast = a * nextIdx + b;
+                    }
+                    else
+                    {
+                        // لا توجد بيانات كافية: استخدم المتوسط
+                        forecast = series.Sum(p => (double)p.Qty) / Math.Max(1, series.Count);
+                    }
+
+                    // لا نعود بقيم سالبة
+                    forecasts.Add((prodId, name, Math.Max(0, Math.Round(forecast, 2))));
+                }
+
+                var topForecasts = forecasts
+                    .OrderByDescending(f => f.ForecastQty)
+                    .Take(top)
+                    .ToList();
+
+                string answer;
+                if (!topForecasts.Any())
+                {
+                    answer = "لا تتوفر بيانات كافية لإجراء توقعات للمبيعات الشهر القادم.";
+                }
+                else
+                {
+                    answer = "توقُّع المنتجات الأكثر مبيعاً للشهر القادم:\n";
+                    for (int i = 0; i < topForecasts.Count; i++)
+                    {
+                        var f = topForecasts[i];
+                        answer += $"{i + 1}. {f.Name} - كمية متوقعة: {f.ForecastQty}\n";
+                    }
+                }
+
+                return new ChatResponse
+                {
+                    Success = true,
+                    Answer = answer.Trim(),
+                    QueryType = "forecast_next_month",
+                    Data = topForecasts.Select(f => new { f.ProductId, ProductName = f.Name, ForecastQuantity = f.ForecastQty, Period = nextMonth.ToString("yyyy-MM") }).ToList()
+                };
+            }
+            catch (Exception ex)
+            {
+                return new ChatResponse
+                {
+                    Success = false,
+                    Answer = "حدث خطأ أثناء بناء التوقعات للشهر القادم.",
+                    QueryType = "forecast_next_month",
                     ErrorMessage = ex.Message
                 };
             }

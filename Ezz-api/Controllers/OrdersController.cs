@@ -1,4 +1,4 @@
-using Microsoft.AspNetCore.Authorization;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -57,7 +57,8 @@ namespace Ezz_api.Controllers
                     PaymentMethod = request.PaymentMethod,
                     PaymentStatus = request.PaymentMethod == "stripe" || request.PaymentMethod == "paypal" ? "pending" : "pending",
                     OrderStatus = "pending",
-                    CreatedAt = DateTime.UtcNow
+                    CreatedAt = DateTime.UtcNow,
+                    OrderItems = new List<OrderItem>() // ✅ Initialize this
                 };
 
                 // Add order items and update inventory

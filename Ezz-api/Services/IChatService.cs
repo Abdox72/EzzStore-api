@@ -11,6 +11,8 @@ namespace Ezz_api.Services
         Task<ChatResponse> GetCategoryStatisticsAsync();
         Task<ChatResponse> GetProductCountAsync();
         Task<ChatResponse> GetTotalRevenueAsync();
+        Task<ChatResponse> ForecastTopSellingNextMonthAsync(string category = "", int top = 5);
+
     }
 }
 

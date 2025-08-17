@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Ezz_api.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20250814161026_init")]
+    [Migration("20250815184524_init")]
     partial class init
     {
         /// <inheritdoc />

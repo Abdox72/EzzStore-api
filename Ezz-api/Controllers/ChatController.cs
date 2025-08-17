@@ -197,6 +197,31 @@ namespace Ezz_api.Controllers
                 });
             }
         }
+
+        /// <summary>
+        /// توقع المنتجات الأكثر مبيعاً في الشهر القادم (بسيط)
+        /// </summary>
+        /// <param name="category">تصنيف (اختياري)</param>
+        /// <returns>قائمة بالتوقعات</returns>
+        [HttpGet("forecast-next-month")]
+        public async Task<ActionResult<ChatResponse>> ForecastNextMonth([FromQuery] string? category = "", [FromQuery] int top = 5)
+        {
+            try
+            {
+                var response = await _chatService.ForecastTopSellingNextMonthAsync(category ?? string.Empty, top);
+                return Ok(response);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new ChatResponse
+                {
+                    Success = false,
+                    Answer = "حدث خطأ أثناء بناء التوقعات",
+                    QueryType = "server_error",
+                    ErrorMessage = ex.Message
+                });
+            }
+        }
     }
 }
 
